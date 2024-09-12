@@ -179,7 +179,7 @@ def logecowitt():
             continue
 
         # No conversions needed
-        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'lightning_num']:
+        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'wh57batt', 'lightning_num']:
             results[key] = value
 
         # Solar irradiance, default W/m^2
@@ -309,8 +309,11 @@ def logecowitt():
     for key, value in results.items():
         # Send the data to the Prometheus exporter
         if prometheus:
-            metrics[key].set(value)
-            app.logger.debug("Set Prometheus metric %s: %s", key, value)
+            if value != "":
+                app.logger.debug("Set Prometheus metric %s: %s", key, value)
+                metrics[key].set(value)
+            else:
+                app.logger.critical('Set Prometheus metric %s: value is ""! data: %s', key, request.get_data())
 
         # Build an array of points to send to InfluxDB
         if influxdb:
@@ -369,6 +372,7 @@ if __name__ == "__main__":
     metrics['monthlyrain'] = Gauge(name='monthlyrain', documentation='Monthly rainfall', unit=rain_unit)
     metrics['yearlyrain'] = Gauge(name='yearlyrain', documentation='Yearly rainfall', unit=rain_unit)
     metrics['totalrain'] = Gauge(name='totalrain', documentation='Total rainfall', unit=rain_unit)
+    metrics['wh57batt'] = Gauge(name='wh57batt', documentation='WH57 sensor battery levels 1-5')
     metrics['lightning'] = Gauge(name='lightning', documentation='Lightning distance', unit=distance_unit)
     metrics['lightning_num'] = Gauge(name='lightning_num', documentation='Lightning daily count')
 
