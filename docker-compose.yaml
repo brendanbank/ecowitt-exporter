@@ -1,0 +1,8 @@
+services:
+  ecowitt:
+    build: .
+    restart: always
+    ports:
+      - "8088:8088"
+    environment:
+      DEBUG: "no"
