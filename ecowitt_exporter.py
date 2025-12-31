@@ -1,3 +1,4 @@
+#!/usr/local/ecowitt-exporter/venv/bin/python3
 import os
 import logging
 import aqi
