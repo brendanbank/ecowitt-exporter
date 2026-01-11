@@ -175,11 +175,11 @@ def process_weather_data(data):
         app.logger.debug("Received raw value %s: %s", key, value)
 
         # Ignore these fields
-        if key in ['PASSKEY', 'stationtype', 'dateutc', 'wh25batt', 'batt1', 'batt2', 'freq', 'model', 'runtime', 'battin', 'batt_lightning', 'lightning_time', 'winddir_avg10m']:
+        if key in ['PASSKEY', 'stationtype', 'dateutc', 'wh25batt', 'batt1', 'batt2', 'freq', 'model', 'runtime', 'lightning_time', 'winddir_avg10m']:
             continue
 
         # No conversions needed
-        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'wh57batt', 'lightning_num', 'lightning_day']:
+        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'wh57batt', 'lightning_num', 'lightning_day', 'battin', 'batt_lightning']:
             results[key] = value
 
         # Solar irradiance, default W/m^2
@@ -444,6 +444,8 @@ if __name__ == "__main__":
     metrics['lightning_num'] = Gauge(name='lightning_num', documentation='Lightning daily count')
     metrics['lightning_distance'] = Gauge(name='lightning_distance', documentation='Lightning distance', unit=distance_unit)
     metrics['lightning_day'] = Gauge(name='lightning_day', documentation='Lightning daily count')
+    metrics['battin'] = Gauge(name='battin_status', documentation='AmbientWeather indoor console battery status (1=OK, 0=Low)')
+    metrics['batt_lightning'] = Gauge(name='batt_lightning_status', documentation='AmbientWeather lightning sensor battery status (1=OK, 0=Low)')
 
     # Increase Flask logging if in debug mode
     if debug:
