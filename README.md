@@ -1,6 +1,6 @@
 # ecowitt-exporter
 
-Ecowitt exporter for Prometheus & InfluxDB
+Ecowitt & AmbientWeather exporter for Prometheus & InfluxDB
 
 The WiFi-enabled Ecowitt weather stations can export metrics in a number of protocols to various online weather services, as a push operation.
 They also support pushing to a custom endpoint in a choice of two protocols, Ecowitt or Wunderground. Blogger Ernest Neijenhuis has
@@ -9,21 +9,28 @@ app called [Ecowither](https://github.com/pa3hcm/ecowither) to gateway the Ecowi
 
 Here I am building on his work to present the Ecowitt metrics as an exporter for Prometheus.
 
-This exporter runs on a single HTTP port (default `8088`) and provides two endpoints:
+AmbientWeather stations (from the same parent company) are also supported using a separate endpoint.
+
+This exporter runs on a single HTTP port (default `8088`) and provides three endpoints:
 
 * `/report` where the Ecowitt weather station should POST its data
+* `/ambientweather` where AmbientWeather stations can send their data via GET requests
 * `/metrics` where Prometheus can scrape metrics with a GET request
 
 ## Supported hardware
 
-Most Ecowitt weather stations and sensors should work fine with this exporter.
+Most Ecowitt and AmbientWeather weather stations and sensors should work fine with this exporter.
 The following hardware has been explicitly tested. If you have info about any hardware
 that does or doesn't work, please raise an issue so I can update the list.
 
-### Weather stations
+### Ecowitt weather stations
 
 - WS2910 Weather Station
 - GW1100 Wi-Fi Gateway
+
+### AmbientWeather weather stations
+
+- AMBWeatherPro (V5.2.5 and later)
 
 ### Sensors
 
@@ -91,7 +98,9 @@ helm install -n monitoring ecowitt-exporter djjudas21/ecowitt-exporter
 
 After deploying via Helm, it will print some output to explain how to find the IP and/or hostname of the exporter running in Kubernetes.
 
-Use the WSView Plus all to configure the integration. Go into the device, scroll across until Customized and set the following:
+### Ecowitt stations
+
+Use the WSView Plus app to configure the integration. Go into the device, scroll across until Customized and set the following:
 
 * Customized: Enable
 * Protocol: Ecowitt
@@ -102,9 +111,21 @@ Use the WSView Plus all to configure the integration. Go into the device, scroll
 
 Then hit Save. It seems to take a couple of minutes for the weather station to submit its first reading.
 
+### AmbientWeather stations
+
+Use the AmbientWeather app to configure the custom server. The exact configuration depends on your station model, but generally:
+
+* Enable Custom Server
+* Server URL: `http://your-server:8088/ambientweather?` (note the `?` at the end is important)
+* Upload interval: `60` seconds
+
+**Note:** Some AmbientWeather stations may send malformed URLs with `&` instead of `?` to start query parameters. This exporter includes a workaround to handle this issue automatically, so your station should work either way.
+
 ## Testing
 
-Real data captured from the Ecowitt weather station with [http-webhook](https://artifacthub.io/packages/helm/securecodebox/http-webhook) to be used as a test:
+### Ecowitt testing
+
+Real data captured from an Ecowitt weather station with [http-webhook](https://artifacthub.io/packages/helm/securecodebox/http-webhook) to be used as a test:
 
 ```json
 {
@@ -134,9 +155,19 @@ Real data captured from the Ecowitt weather station with [http-webhook](https://
 
 This POST request can be simulated with curl:
 
+```bash
+curl -d "PASSKEY=573AF40DB42C66057D20631F706CD585&stationtype=EasyWeatherPro_V5.1.1&runtime=0&dateutc=2023-10-20+11:24:35&tempinf=73.4&humidityin=57&baromrelin=28.984&baromabsin=28.603&tempf=59.2&humidity=90&winddir=256&windspeedmph=2.91&windgustmph=4.47&maxdailygust=9.17&solarradiation=96.86&uv=0&rainratein=0.000&eventrainin=1.472&hourlyrainin=0.000&dailyrainin=0.154&weeklyrainin=1.480&monthlyrainin=3.720&yearlyrainin=15.642&totalrainin=15.642&temp1f=59.5&humidity1=79&pm25_ch1=3.0&pm25_avg_24h_ch1=6.8&wh65batt=0&batt1=0&pm25batt1=5&freq=868M&model=WS2900_V2.01.18&interval=60&lightning_num=22&lightning=20&lightning_time=1691007186" -X POST http://localhost:8088/report
 ```
-curl -d "PASSKEY=573AF40DB42C66057D20631F706CD585&stationtype=EasyWeatherPro_V5.1.1&runtime=0&dateutc=2023-10-20+11:24:35&tempinf=73.4&humidityin=57&baromrelin=28.984&baromabsin=28.603&tempf=59.2&humidity=90&winddir=256&windspeedmph=2.91&windgustmph=4.47&maxdailygust=9.17&solarradiation=96.86&uv=0&rainratein=0.000&eventrainin=1.472&hourlyrainin=0.000&dailyrainin=0.154&weeklyrainin=1.480&monthlyrainin=3.720&yearlyrainin=15.642&totalrainin=15.642&temp1f=59.5&humidity1=79&pm25_ch1=3.0&pm25_avg_24h_ch1=6.8&wh65batt=0&batt1=0&pm25batt1=5&freq=868M&model=WS2900_V2.01.18&interval=60&lightning_num=22&lightning=20&lightning_time=1691007186" -X POST http://192.168.0.65:8080/report
+
+### AmbientWeather testing
+
+Real data from an AmbientWeather station can be simulated with this GET request:
+
+```bash
+curl "http://localhost:8088/ambientweather?PASSKEY=FEF4B3D259BA512C6A026785BFC71FCB&stationtype=AMBWeatherPro_V5.2.5&dateutc=2026-01-11+21:13:29&tempf=33.1&humidity=86&windspeedmph=5.59&windgustmph=12.08&maxdailygust=18.34&winddir=266&winddir_avg10m=285&uv=0&solarradiation=0.00&hourlyrainin=0.000&eventrainin=0.000&dailyrainin=0.000&weeklyrainin=0.535&monthlyrainin=2.283&yearlyrainin=2.283&totalrainin=2.283&tempinf=68.9&humidityin=34&baromrelin=29.946&baromabsin=29.946&battin=1&lightning_day=0&lightning_time=1767599898&lightning_distance=17&batt_lightning=0"
 ```
+
+### Viewing metrics
 
 We can then view the corresponding Prometheus metrics with a simple GET request (output has been truncated because it is very long):
 

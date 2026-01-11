@@ -160,12 +160,11 @@ rainmaps = {
 }
 
 
-@app.route('/report', methods=['POST'])
-def logecowitt():
-
-    # Retrieve the POST body
-    data = request.form
-
+def process_weather_data(data):
+    """
+    Process weather station data and return results dict.
+    Works for both Ecowitt (POST form) and AmbientWeather (GET params).
+    """
     # Set up a dict to receive the processed results
     results = {}
 
@@ -176,11 +175,11 @@ def logecowitt():
         app.logger.debug("Received raw value %s: %s", key, value)
 
         # Ignore these fields
-        if key in ['PASSKEY', 'stationtype', 'dateutc', 'wh25batt', 'batt1', 'batt2', 'freq', 'model', 'runtime']:
+        if key in ['PASSKEY', 'stationtype', 'dateutc', 'wh25batt', 'batt1', 'batt2', 'freq', 'model', 'runtime', 'battin', 'batt_lightning', 'lightning_time', 'winddir_avg10m']:
             continue
 
         # No conversions needed
-        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'wh57batt', 'lightning_num']:
+        if key in ['humidity', 'humidityin', 'winddir', 'uv', 'pm25_ch1', 'pm25_avg_24h_ch1', 'pm25batt1', 'wh65batt', 'wh57batt', 'lightning_num', 'lightning_day']:
             results[key] = value
 
         # Solar irradiance, default W/m^2
@@ -275,7 +274,7 @@ def logecowitt():
             results[key] = value
 
         # Lightning distance, default kilometers
-        if key in ['lightning']:
+        if key in ['lightning', 'lightning_distance']:
             if distance_unit == 'km':
                 results[key] = value
             elif distance_unit == 'mi':
@@ -283,6 +282,16 @@ def logecowitt():
                 distancemi = float(value) / 1.60934
                 value = "{:.2f}".format(distancemi)
                 results[key] = value
+
+    # Map AmbientWeather lightning_day to lightning_num for compatibility
+    if 'lightning_day' in results and 'lightning_num' not in results:
+        results['lightning_num'] = results['lightning_day']
+        del results['lightning_day']
+
+    # Map AmbientWeather lightning_distance to lightning for compatibility
+    if 'lightning_distance' in results and 'lightning' not in results:
+        results['lightning'] = results['lightning_distance']
+        del results['lightning_distance']
 
     # Add Air Quality Index (AQI)
     if data.get('pm25_avg_24h_ch1'):
@@ -300,10 +309,10 @@ def logecowitt():
     # https://github.com/djjudas21/ecowitt-exporter/issues/17
     if data.get('pm25batt1') == '1' and data.get('pm25_ch1') == '1000':
         # Drop erroneous readings
-        app.logger.debug("Drop erroneous PM25 reading 'pm25_ch1': %s", results['pm25_ch1'])
-        del results['pm25_ch1']
-        del results['pm25_avg_24h_ch1']
-        del results['aqi']
+        app.logger.debug("Drop erroneous PM25 reading 'pm25_ch1': %s", results.get('pm25_ch1'))
+        results.pop('pm25_ch1', None)
+        results.pop('pm25_avg_24h_ch1', None)
+        results.pop('aqi', None)
 
     # Now loop on our processed results and do things with them
     points = []
@@ -314,7 +323,7 @@ def logecowitt():
                 app.logger.debug("Set Prometheus metric %s: %s", key, value)
                 metrics[key].set(value)
             else:
-                app.logger.critical('Set Prometheus metric %s: value is ""! data: %s', key, request.get_data())
+                app.logger.critical('Set Prometheus metric %s: value is ""! data: %s', key, data)
 
         # Build an array of points to send to InfluxDB
         if influxdb:
@@ -328,6 +337,63 @@ def logecowitt():
             write_api = client.write_api(write_options=SYNCHRONOUS)
             write_api.write(bucket=influxdb_bucket, record=points)
             app.logger.debug("Submitted InfluxDB points to server")
+
+    return results
+
+
+@app.route('/report', methods=['POST'])
+def logecowitt():
+    # Retrieve the POST body
+    data = request.form
+    
+    # Process the weather data
+    process_weather_data(data)
+
+    # Return a 200 to the weather station
+    response = app.response_class(
+            response='OK',
+            status=200,
+            mimetype='application/json'
+    )
+    return response
+
+
+@app.route('/ambientweather', methods=['GET'])
+def ambientweather():
+    # Retrieve the GET query parameters
+    data = request.args
+    
+    # Process the weather data
+    process_weather_data(data)
+
+    # Return a 200 to the weather station
+    response = app.response_class(
+            response='OK',
+            status=200,
+            mimetype='application/json'
+    )
+    return response
+
+
+@app.route('/ambientweather&<path:params>', methods=['GET'])
+def ambientweather_malformed(params):
+    """
+    Workaround for AmbientWeather stations that send malformed URLs
+    with & instead of ? for query parameters.
+    """
+    # Parse the malformed query string manually
+    from urllib.parse import parse_qs
+    
+    # The params will be like "PASSKEY=xxx&stationtype=yyy&..."
+    parsed_params = parse_qs(params, keep_blank_values=True)
+    
+    # Flatten the parsed params (parse_qs returns lists)
+    data = {k: v[0] if v else '' for k, v in parsed_params.items()}
+    
+    app.logger.info("Received malformed AmbientWeather URL, parsed %d parameters", len(data))
+    
+    # Process the weather data
+    process_weather_data(data)
 
     # Return a 200 to the weather station
     response = app.response_class(
@@ -376,6 +442,8 @@ if __name__ == "__main__":
     metrics['wh57batt'] = Gauge(name='wh57batt', documentation='WH57 sensor battery levels 1-5')
     metrics['lightning'] = Gauge(name='lightning', documentation='Lightning distance', unit=distance_unit)
     metrics['lightning_num'] = Gauge(name='lightning_num', documentation='Lightning daily count')
+    metrics['lightning_distance'] = Gauge(name='lightning_distance', documentation='Lightning distance', unit=distance_unit)
+    metrics['lightning_day'] = Gauge(name='lightning_day', documentation='Lightning daily count')
 
     # Increase Flask logging if in debug mode
     if debug:
