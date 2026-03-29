@@ -293,7 +293,6 @@ def process_weather_data(data):
             if rain_unit == 'mm':
                 value = in2mm(value)
             key = key[:-2]
-            key = key.replace('rain', '')
             addmetric(metric='rain', label=[key, rain_unit], value=value)
 
         # Lightning distance, default kilometers
