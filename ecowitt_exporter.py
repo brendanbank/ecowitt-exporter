@@ -66,7 +66,8 @@ rainmaps = {
         "wrain_piezo": "weeklyrain",
         "mrain_piezo": "monthlyrain",
         "yrain_piezo": "yearlyrain",
-        "last24hrain_piezo": "last24hrain"
+        "last24hrain_piezo": "last24hrain",
+        "srain_piezo": "stormrain"
 }
 
 # pylint: disable=dangerous-default-value
@@ -283,7 +284,8 @@ def process_weather_data(data):
         elif key.endswith('piezo'):
             if rain_unit == 'mm':
                 value = in2mm(value)
-            addmetric(metric='rain', label=[rainmaps[key], rain_unit], value=value)
+            label = rainmaps.get(key, key.replace('_piezo', ''))
+            addmetric(metric='rain', label=[label, rain_unit], value=value)
 
         # Rainfall, default inches
         elif 'rain' in key:
