@@ -1,0 +1,15 @@
+[Unit]
+Description=Ecowitt exporter
+After=network.target
+
+[Service]
+User=ecowitt
+Group=ecowitt
+Restart=always
+WorkingDirectory=/usr/local/ecowitt-exporter
+Environment="PATH=/usr/local/ecowitt-exporter/venv/bin"
+ExecStart=/usr/local/ecowitt-exporter/venv/bin/python3 /usr/local/ecowitt-exporter/ecowitt_exporter.py
+
+[Install]
+WantedBy=multi-user.target
+

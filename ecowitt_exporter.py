@@ -1,3 +1,4 @@
+#!/usr/local/ecowitt-exporter/venv/bin/python3
 import os
 import logging
 import re
@@ -70,7 +71,7 @@ rainmaps = {
 # pylint: disable=dangerous-default-value
 def addmetric(metric: str, value: str, label: list = []):
     '''
-    Set a metric in the Prometheus exporter 
+    Set a metric in the Prometheus exporter
     and optionally log a debug message.
     '''
     if debug:
@@ -97,11 +98,23 @@ def calculate_aqi(standard: str, value: str) -> str:
             aqi = aqi_nepm(value)
     return aqi
 
-@app.route('/report', methods=['POST'])
-def logecowitt():
+def process_weather_data(data):
+    """
+    Process weather station data and update Prometheus metrics.
+    Works for both Ecowitt (POST form) and AmbientWeather (GET params).
+    """
 
-    # Retrieve the POST body
-    data = request.form
+    # Map AmbientWeather field names to Ecowitt equivalents
+    mapped_data = {}
+    for key in data:
+        value = data[key]
+        if key == 'lightning_day':
+            mapped_data['lightning_num'] = value
+        elif key == 'lightning_distance':
+            mapped_data['lightning'] = value
+        else:
+            mapped_data[key] = value
+    data = mapped_data
 
     for key in data:
         # Process each key from the raw data, do unit conversions if necessary,
@@ -110,25 +123,28 @@ def logecowitt():
         app.logger.debug("Received raw value %s: %s", key, value)
 
         # Ignore these fields
-        if key in ['PASSKEY', 'dateutc', 'runtime']:
+        if key in ['PASSKEY', 'stationtype', 'dateutc', 'wh25batt', 'batt1', 'batt2', 'freq', 'model', 'runtime', 'lightning_time', 'winddir_avg10m', 'interval']:
             continue
-        
+
         # Add these fields as INFO
         elif key in ['stationtype', 'freq', 'model']:
             metrics[key].info({key: value})
 
         # No conversions needed
-        elif key in ['winddir', 'uv', 'lightning_num', 'lightning_time']:
+        elif key in ['winddir', 'uv', 'lightning_num']:
             addmetric(metric=key, value=value)
-        
+
         # Support for WS90 capacitor
         elif key in ['ws90cap_volt']:
             addmetric(metric='ws90', label=[key, 'volt'], value=value)
 
         # Battery status & levels
         elif 'batt' in key:
+            # AmbientWeather battery status fields
+            if key in ['battin', 'batt_lightning']:
+                addmetric(metric='batterystatus', label=[key], value=value)
             # Battery level - returns battery level from 0-5
-            if key in ['wh57batt', 'pm25batt1', 'pm25batt2']:
+            elif key in ['wh57batt', 'pm25batt1', 'pm25batt2']:
                 addmetric(metric='batterylevel', label=[key], value=value)
             # Battery voltage - returns a decimal voltage e.g. 1.7
             elif key.startswith('soil') or key.startswith('ws90'):
@@ -261,13 +277,12 @@ def logecowitt():
             if key != 'maxdailygust':
                 key = key[:-3]
             addmetric(metric='wind', label=[key, wind_unit], value=value)
-        
+
         # Support for WS90 with a haptic rain sensor
         elif key.endswith('piezo'):
             if rain_unit == 'mm':
                 value = in2mm(value)
-            mkey = rainmaps[key]
-            addmetric(metric='rain', label=[key, rain_unit], value=value)
+            addmetric(metric='rain', label=[rainmaps[key], rain_unit], value=value)
 
         # Rainfall, default inches
         elif 'rain' in key:
@@ -280,12 +295,68 @@ def logecowitt():
 
         # Lightning distance, default kilometers
         elif key in ['lightning']:
+            if value == '':
+                continue
             if distance_unit == 'km':
                 addmetric(metric='lightning', label=[distance_unit], value=value)
             elif distance_unit == 'mi':
                 value = km2mi(value)
                 addmetric(metric='lightning', label=[distance_unit], value=value)
 
+
+@app.route('/report', methods=['POST'])
+def logecowitt():
+    # Retrieve the POST body
+    data = request.form
+
+    # Process the weather data
+    process_weather_data(data)
+
+    # Return a 200 to the weather station
+    response = app.response_class(
+            response='OK',
+            status=200,
+            mimetype='application/json'
+    )
+    return response
+
+
+@app.route('/ambientweather', methods=['GET'])
+def ambientweather():
+    # Retrieve the GET query parameters
+    data = request.args
+
+    # Process the weather data
+    process_weather_data(data)
+
+    # Return a 200 to the weather station
+    response = app.response_class(
+            response='OK',
+            status=200,
+            mimetype='application/json'
+    )
+    return response
+
+
+@app.route('/ambientweather&<path:params>', methods=['GET'])
+def ambientweather_malformed(params):
+    """
+    Workaround for AmbientWeather stations that send malformed URLs
+    with & instead of ? for query parameters.
+    """
+    # Parse the malformed query string manually
+    from urllib.parse import parse_qs
+
+    # The params will be like "PASSKEY=xxx&stationtype=yyy&..."
+    parsed_params = parse_qs(params, keep_blank_values=True)
+
+    # Flatten the parsed params (parse_qs returns lists)
+    data = {k: v[0] if v else '' for k, v in parsed_params.items()}
+
+    app.logger.info("Received malformed AmbientWeather URL, parsed %d parameters", len(data))
+
+    # Process the weather data
+    process_weather_data(data)
 
     # Return a 200 to the weather station
     response = app.response_class(
@@ -318,7 +389,6 @@ if __name__ == "__main__":
     metrics['rain'] = Gauge(name='ecowitt_rain', documentation='Rainfall', labelnames=['sensor', 'unit'])
     metrics['lightning'] = Gauge(name='ecowitt_lightning', documentation='Lightning distance', labelnames=['unit'])
     metrics['lightning_num'] = Gauge(name='ecowitt_lightning_num', documentation='Lightning daily count')
-    metrics['lightning_time'] = Gauge(name='ecowitt_lightning_time', documentation='Lightning last strike')
     metrics['ws90'] = Gauge(name='ecowitt_wh90', documentation='WS90 electrical energy stored', labelnames=['sensor', 'unit'])
     metrics['soilmoisture'] = Gauge(name='ecowitt_soilmoisture', documentation='Soil moisture', labelnames=['sensor', 'unit'])
 
