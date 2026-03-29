@@ -65,7 +65,8 @@ rainmaps = {
         "drain_piezo": "dailyrain",
         "wrain_piezo": "weeklyrain",
         "mrain_piezo": "monthlyrain",
-        "yrain_piezo": "yearlyrain"
+        "yrain_piezo": "yearlyrain",
+        "last24hrain_piezo": "last24hrain"
 }
 
 # pylint: disable=dangerous-default-value
